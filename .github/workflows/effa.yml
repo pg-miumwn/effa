@@ -1,8 +1,12 @@
 name: Update CSS to OUR CDN
 on:
+  push:
+    branches:
+      - main
   schedule:
     - cron: '0 0 */2 * *' # Every two days at 00:00 UTC
   workflow_dispatch:
+  
 jobs:
   update-css:
     runs-on: ubuntu-latest
@@ -38,7 +42,7 @@ jobs:
           OUTPUT_FILE="${VERSION}/${CSS_FILE_PATH}"
           mkdir -p $(dirname "$OUTPUT_FILE")
           curl -s "$CSS_URL" -o "$OUTPUT_FILE"
-          CSS_BASE_URL="${CSS_URL%/*}"
+          CSS_BASE_URL="${CSS_URL%/css/*}"
           sed -i "s|\.\./${FONT_DIR}/|$CSS_BASE_URL/$FONT_DIR/|g" "$OUTPUT_FILE"
           echo "CSS processed and saved to $OUTPUT_FILE"
       - name: Install Netlify CLI
