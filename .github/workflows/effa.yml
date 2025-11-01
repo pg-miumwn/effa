@@ -58,12 +58,11 @@ jobs:
           VERSION="${{ steps.PAF_version.outputs.version }}"
           LOCAL_FILE="${VERSION}/${CSS_FILE_PATH}"
           
-          TARGET_PATH_TO_ENCODE="$VERSION/$CSS_FILE_PATH"
-          TARGET_PATH_ENCODED=$(node -pe "encodeURIComponent('$TARGET_PATH_TO_ENCODE')")
+          TARGET_PATH="$VERSION/$CSS_FILE_PATH"
+          
+          echo "Attempting to upload $LOCAL_FILE to Netlify path: $TARGET_PATH"
 
-          echo "Attempting to upload $LOCAL_FILE to Netlify path: $TARGET_PATH_TO_ENCODE"
-
-          RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X PUT "https://api.netlify.com/api/v1/sites/$NETLIFY_SITE_ID/files/$TARGET_PATH_ENCODED" \
+          RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X PUT "https://api.netlify.com/api/v1/sites/$NETLIFY_SITE_ID/files/$TARGET_PATH" \
             -H "Authorization: Bearer $NETLIFY_TOKEN" \
             -H "Content-Type: text/css" \
             --data-binary "@$LOCAL_FILE")
@@ -72,10 +71,12 @@ jobs:
           BODY=$(echo "$RESPONSE" | sed '$d') # Remove the last line (HTTP_STATUS)
 
           if [ "$HTTP_STATUS" -ge 200 ] && [ "$HTTP_STATUS" -lt 300 ]; then
-            echo "✅ File uploaded successfully. Netlify Path: $TARGET_PATH_TO_ENCODE"
+            echo "✅ File uploaded successfully. Netlify Path: $TARGET_PATH"
             echo "Response: $BODY"
           else
             echo "❌ Upload failed with HTTP Status $HTTP_STATUS."
             echo "Netlify API Error Response: $BODY"
+            # It could still be a secret issue if the 404 persists,
+            # but this fixes the path encoding problem.
             exit 1
           fi
