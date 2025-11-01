@@ -55,13 +55,17 @@ jobs:
           
           echo "Deploying $LOCAL_FILE to Netlify site..."
           
-          # Deploy using Netlify CLI with manual deploy
-          netlify deploy \
+          # Deploy using Netlify CLI in JSON mode and suppress output
+          DEPLOY_OUTPUT=$(netlify deploy \
             --dir="$DEPLOY_DIR" \
             --site="$NETLIFY_SITE_ID" \
             --auth="$NETLIFY_TOKEN" \
             --prod \
-            --message="Update CSS version $VERSION"
+            --message="Update CSS version $VERSION" \
+            --json 2>/dev/null)
+
+          # Optional: you can parse DEPLOY_OUTPUT if needed
+          # For example, get the published URL:
+          PUBLISHED_URL=$(echo "$DEPLOY_OUTPUT" | node -pe "JSON.parse(require('fs').readFileSync(0,'utf8')).url")
           
-          echo "✅ Successfully deployed CSS version $VERSION"
-          echo "📍 File available at: https://your-site.netlify.app/{version}/{path}"
+          echo "✅ Successfully deployed CSS version for latest version"
