@@ -1,10 +1,8 @@
 name: Update CSS to OUR CDN
-
 on:
   schedule:
     - cron: '0 0 */2 * *' # Every two days at 00:00 UTC
   workflow_dispatch:
-
 jobs:
   update-css:
     runs-on: ubuntu-latest
@@ -17,66 +15,53 @@ jobs:
       CSS_FILE_PATH: ${{ secrets.CSS_FILE_PATH }}
       FONT_DIR: ${{ secrets.FONT_DIR }}
       CSS_NAME: ${{ secrets.CSS_NAME }}
-
     steps:
       - name: Checkout repo
         uses: actions/checkout@v3
-
       - name: Set up Node.js
         uses: actions/setup-node@v3
         with:
           node-version: '18'
-
       - name: Fetch latest version
         id: PAF_version
         run: |
           # Fetch latest version from npm
           VERSION=$(curl -s "$PAF_NPM_URL" | node -pe "JSON.parse(require('fs').readFileSync(0,'utf8')).version")
           echo "version=$VERSION" >> $GITHUB_OUTPUT
-
       - name: Fetch and process CSS
         run: |
           VERSION=${{ steps.PAF_version.outputs.version }}
-
           # Build CSS URL from template
           CSS_URL=${PAF_CSS_URL_TEMPLATE//\{version\}/$VERSION}
           CSS_URL=${CSS_URL//\{token\}/$PAF_TOKEN}
-
           # Build full local path including version
           OUTPUT_FILE="${VERSION}/${CSS_FILE_PATH}"
-
           mkdir -p $(dirname "$OUTPUT_FILE")
           curl -s "$CSS_URL" -o "$OUTPUT_FILE"
-
           CSS_BASE_URL="${CSS_URL%/*}"
           sed -i "s|\.\./${FONT_DIR}/|$CSS_BASE_URL/$FONT_DIR/|g" "$OUTPUT_FILE"
-
           echo "CSS processed and saved to $OUTPUT_FILE"
-
-      - name: Upload CSS to Netlify
+      - name: Install Netlify CLI
+        run: npm install -g netlify-cli
+      - name: Deploy CSS to Netlify
         run: |
           VERSION="${{ steps.PAF_version.outputs.version }}"
           LOCAL_FILE="${VERSION}/${CSS_FILE_PATH}"
           
-          TARGET_PATH="$VERSION/$CSS_FILE_PATH"
+          # Create a temporary deploy directory
+          DEPLOY_DIR="netlify-deploy"
+          mkdir -p "$DEPLOY_DIR/$VERSION/$(dirname $CSS_FILE_PATH)"
+          cp "$LOCAL_FILE" "$DEPLOY_DIR/$VERSION/$CSS_FILE_PATH"
           
-          echo "Attempting to upload $LOCAL_FILE to Netlify path: $TARGET_PATH"
-
-          RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X PUT "https://api.netlify.com/api/v1/sites/$NETLIFY_SITE_ID/files/$TARGET_PATH" \
-            -H "Authorization: Bearer $NETLIFY_TOKEN" \
-            -H "Content-Type: text/css" \
-            --data-binary "@$LOCAL_FILE")
-
-          HTTP_STATUS=$(echo "$RESPONSE" | awk -F':' '/^HTTP_STATUS:/ {print $2}')
-          BODY=$(echo "$RESPONSE" | sed '$d') # Remove the last line (HTTP_STATUS)
-
-          if [ "$HTTP_STATUS" -ge 200 ] && [ "$HTTP_STATUS" -lt 300 ]; then
-            echo "✅ File uploaded successfully. Netlify Path: $TARGET_PATH"
-            echo "Response: $BODY"
-          else
-            echo "❌ Upload failed with HTTP Status $HTTP_STATUS."
-            echo "Netlify API Error Response: $BODY"
-            # It could still be a secret issue if the 404 persists,
-            # but this fixes the path encoding problem.
-            exit 1
-          fi
+          echo "Deploying $LOCAL_FILE to Netlify site..."
+          
+          # Deploy using Netlify CLI with manual deploy
+          netlify deploy \
+            --dir="$DEPLOY_DIR" \
+            --site="$NETLIFY_SITE_ID" \
+            --auth="$NETLIFY_TOKEN" \
+            --prod \
+            --message="Update CSS version $VERSION"
+          
+          echo "✅ Successfully deployed CSS version $VERSION"
+          echo "📍 File available at: https://your-site.netlify.app/{version}/{path}"
