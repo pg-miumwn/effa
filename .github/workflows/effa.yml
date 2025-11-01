@@ -14,7 +14,9 @@ jobs:
       PAF_NPM_URL: ${{ secrets.PAF_NPM_URL }}
       PAF_CSS_URL_TEMPLATE: ${{ secrets.PAF_CSS_URL_TEMPLATE }}
       PAF_TOKEN: ${{ secrets.PAF_TOKEN }}
-      CSS_FILE: ${{ secrets.CSS_FILE_PATH }}
+      CSS_FILE_PATH: ${{ secrets.CSS_FILE_PATH }}
+      FONT_DIR: ${{ secrets.FONT_DIR }}
+      CSS_NAME: ${{ secrets.CSS_NAME }}
 
     steps:
       - name: Checkout repo
@@ -28,26 +30,34 @@ jobs:
       - name: Fetch latest version
         id: PAF_version
         run: |
-          echo "Fetching latest version..."
+          # Fetch latest version from npm
           VERSION=$(curl -s "$PAF_NPM_URL" | node -pe "JSON.parse(require('fs').readFileSync(0,'utf8')).version")
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
       - name: Fetch and process CSS
         run: |
           VERSION=${{ steps.PAF_version.outputs.version }}
+
+          # Build CSS URL from template
           CSS_URL=${PAF_CSS_URL_TEMPLATE//\{version\}/$VERSION}
           CSS_URL=${CSS_URL//\{token\}/$PAF_TOKEN}
 
-          mkdir -p $(dirname $CSS_FILE)
-          curl -s "$CSS_URL" -o "$CSS_FILE"
+          # Build full path including version
+          OUTPUT_FILE="${VERSION}/${CSS_FILE_PATH}"
 
-          # Replace relative webfont paths
-          sed -i "s|\.\./webfonts/|${CSS_URL%/css/pro.min.css}/webfonts/|g" "$CSS_FILE"
-          echo "CSS processed and saved to $CSS_FILE"
+          mkdir -p $(dirname "$OUTPUT_FILE")
+          curl -s "$CSS_URL" -o "$OUTPUT_FILE"
+
+          # Obfuscate font paths
+          # Using variables instead of hardcoded strings
+          sed -i "s|\.\./${FONT_DIR}/|${CSS_URL%/*}/$FONT_DIR/|g" "$OUTPUT_FILE"
+
+          echo "CSS processed and saved to $OUTPUT_FILE"
 
       - name: Upload CSS to Netlify
         run: |
-          RESPONSE=$(curl -s -X POST https://api.netlify.com/api/v1/sites/$NETLIFY_SITE_ID/deploys \
+          OUTPUT_FILE="${{ steps.PAF_version.outputs.version }}/$CSS_FILE_PATH"
+          RESPONSE=$(curl -s -X POST "https://api.netlify.com/api/v1/sites/$NETLIFY_SITE_ID/deploys" \
             -H "Authorization: Bearer $NETLIFY_TOKEN" \
-            -F "files[$CSS_FILE]=@$CSS_FILE")
+            -F "files[$OUTPUT_FILE]=@$OUTPUT_FILE")
           echo "Deploy response: $RESPONSE"
