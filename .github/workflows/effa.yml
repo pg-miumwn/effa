@@ -42,22 +42,40 @@ jobs:
           CSS_URL=${PAF_CSS_URL_TEMPLATE//\{version\}/$VERSION}
           CSS_URL=${CSS_URL//\{token\}/$PAF_TOKEN}
 
-          # Build full path including version
+          # Build full local path including version
           OUTPUT_FILE="${VERSION}/${CSS_FILE_PATH}"
 
           mkdir -p $(dirname "$OUTPUT_FILE")
           curl -s "$CSS_URL" -o "$OUTPUT_FILE"
 
-          # Obfuscate font paths
-          # Using variables instead of hardcoded strings
-          sed -i "s|\.\./${FONT_DIR}/|${CSS_URL%/*}/$FONT_DIR/|g" "$OUTPUT_FILE"
+          CSS_BASE_URL="${CSS_URL%/*}"
+          sed -i "s|\.\./${FONT_DIR}/|$CSS_BASE_URL/$FONT_DIR/|g" "$OUTPUT_FILE"
 
           echo "CSS processed and saved to $OUTPUT_FILE"
 
       - name: Upload CSS to Netlify
         run: |
-          OUTPUT_FILE="${{ steps.PAF_version.outputs.version }}/$CSS_FILE_PATH"
-          RESPONSE=$(curl -s -X POST "https://api.netlify.com/api/v1/sites/$NETLIFY_SITE_ID/deploys" \
+          VERSION="${{ steps.PAF_version.outputs.version }}"
+          LOCAL_FILE="${VERSION}/${CSS_FILE_PATH}"
+          
+          TARGET_PATH_TO_ENCODE="$VERSION/$CSS_FILE_PATH"
+          TARGET_PATH_ENCODED=$(node -pe "encodeURIComponent('$TARGET_PATH_TO_ENCODE')")
+
+          echo "Attempting to upload $LOCAL_FILE to Netlify path: $TARGET_PATH_TO_ENCODE"
+
+          RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X PUT "https://api.netlify.com/api/v1/sites/$NETLIFY_SITE_ID/files/$TARGET_PATH_ENCODED" \
             -H "Authorization: Bearer $NETLIFY_TOKEN" \
-            -F "files[$OUTPUT_FILE]=@$OUTPUT_FILE")
-          echo "Deploy response: $RESPONSE"
+            -H "Content-Type: text/css" \
+            --data-binary "@$LOCAL_FILE")
+
+          HTTP_STATUS=$(echo "$RESPONSE" | awk -F':' '/^HTTP_STATUS:/ {print $2}')
+          BODY=$(echo "$RESPONSE" | sed '$d') # Remove the last line (HTTP_STATUS)
+
+          if [ "$HTTP_STATUS" -ge 200 ] && [ "$HTTP_STATUS" -lt 300 ]; then
+            echo "✅ File uploaded successfully. Netlify Path: $TARGET_PATH_TO_ENCODE"
+            echo "Response: $BODY"
+          else
+            echo "❌ Upload failed with HTTP Status $HTTP_STATUS."
+            echo "Netlify API Error Response: $BODY"
+            exit 1
+          fi
